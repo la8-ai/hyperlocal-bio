@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../utils/supabase';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function DashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   
   // Profile state
   const [username, setUsername] = useState('');
@@ -27,19 +29,9 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadDashboardData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        router.push('/login');
-        return;
-      }
+      if (!user) { router.push('/login'); return; }
 
-      // 1. Fetch profile
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
+      const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       if (profileData) {
         setUsername(profileData.username || '');
         setDisplayName(profileData.display_name || '');
@@ -47,35 +39,12 @@ export default function DashboardPage() {
         setCity(profileData.city || '');
       }
 
-      // 2. Fetch existing slots
-      const { data: slotsData } = await supabase
-        .from('slots')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true });
+      const { data: slotsData } = await supabase.from('slots').select('*').eq('user_id', user.id).order('created_at', { ascending: true });
+      if (slotsData) setSlots(slotsData);
 
-      if (slotsData) {
-        setSlots(slotsData);
-      }
-
-      // 3. Fetch inbound booking proposals matching this creator
-      const { data: bookingsData } = await supabase
-        .from('bookings')
-        .select(`
-          id,
-          business_name,
-          business_email,
-          proposal_details,
-          created_at,
-          slots ( title )
-        `)
-        .eq('creator_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (bookingsData) {
-        setBookings(bookingsData);
-      }
-
+      const { data: bookingsData } = await supabase.from('bookings').select(`id, business_name, business_email, proposal_details, created_at, slots ( title )`).eq('creator_id', user.id).order('created_at', { ascending: false });
+      if (bookingsData) setBookings(bookingsData);
+      
       setLoading(false);
     };
 
@@ -85,206 +54,102 @@ export default function DashboardPage() {
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setErrorMessage('');
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
     const { error } = await supabase.from('profiles').upsert({
-      id: user.id,
-      username: username.toLowerCase().trim(),
-      display_name: displayName,
-      bio: bio,
-      city: city,
+      id: user.id, username: username.toLowerCase().trim(), display_name: displayName, bio, city,
     });
 
     setSaving(false);
-    if (error) alert(error.message);
-    else alert('Profile updated successfully! 🚀');
+    if (error) setErrorMessage("Failed to update profile: " + error.message);
   };
 
   const handleAddSlot = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage('');
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
     const { data, error } = await supabase.from('slots').insert({
-      user_id: user.id,
-      title: slotTitle,
-      description: slotDescription,
-      price: parseFloat(slotPrice),
+      user_id: user.id, title: slotTitle, description: slotDescription, price: parseFloat(slotPrice),
     }).select().single();
 
-    if (error) {
-      alert(error.message);
-    } else if (data) {
+    if (error) setErrorMessage("Failed to add slot: " + error.message);
+    else {
       setSlots([...slots, data]);
-      setSlotTitle('');
-      setSlotDescription('');
-      setSlotPrice('');
-      alert('Sponsorship slot added live! 💸');
+      setSlotTitle(''); setSlotDescription(''); setSlotPrice('');
     }
   };
 
-  // NEW: Delete Function
   const handleDeleteSlot = async (slotId: string) => {
     if (!confirm("Are you sure you want to delete this listing?")) return;
     const { error } = await supabase.from('slots').delete().eq('id', slotId);
-    if (!error) {
-      setSlots(slots.filter(s => s.id !== slotId));
-    }
+    if (error) setErrorMessage("Failed to delete slot.");
+    else setSlots(slots.filter(s => s.id !== slotId));
   };
 
-  // NEW: Edit Function
-  const handleEditSlot = async (slot: any) => {
-    const newTitle = prompt("Edit Title:", slot.title);
-    const newPrice = prompt("Edit Price:", slot.price);
-    if (newTitle && newPrice) {
-      const { error } = await supabase.from('slots').update({ 
-        title: newTitle, 
-        price: parseFloat(newPrice) 
-      }).eq('id', slot.id);
-      
-      if (!error) {
-        setSlots(slots.map(s => s.id === slot.id ? { ...s, title: newTitle, price: newPrice } : s));
-      }
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-900">
-        <p className="font-medium animate-pulse">Loading dashboard data...</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24">
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-24">
       <div className="max-w-3xl mx-auto px-4 pt-12 space-y-12">
+        {errorMessage && <div className="bg-red-50 text-red-600 p-4 rounded-xl font-medium">{errorMessage}</div>}
         
-        {/* Profile Settings Block */}
         <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Creator Dashboard</h1>
-          <p className="text-slate-500 mb-6">Customize your profile metadata.</p>
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+          <h1 className="text-3xl font-extrabold mb-6">Creator Dashboard</h1>
+          <div className="bg-white rounded-2xl p-6 border shadow-sm">
             <form onSubmit={handleSaveProfile} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Handle</label>
-                  <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-violet-500" />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Display Name</label>
-                  <input type="text" required value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-violet-500" />
-                </div>
+              <div className="grid grid-cols-2 gap-4">
+                <input placeholder="Handle" value={username} onChange={(e) => setUsername(e.target.value)} className="border rounded-xl px-3 py-2 text-sm" />
+                <input placeholder="Display Name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="border rounded-xl px-3 py-2 text-sm" />
               </div>
-              <div>
-                <label className="text-sm font-semibold text-slate-700">City Target</label>
-                <input type="text" required value={city} onChange={(e) => setCity(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-violet-500" />
-              </div>
-              <div>
-                <label className="text-sm font-semibold text-slate-700">Bio</label>
-                <textarea rows={3} value={bio} onChange={(e) => setBio(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-violet-500" />
-              </div>
-              <button type="submit" disabled={saving} className="bg-violet-600 text-white font-semibold text-sm px-4 py-2 rounded-xl shadow-sm hover:bg-violet-700">
-                {saving ? 'Saving...' : 'Save Profile Settings'}
-              </button>
+              <textarea rows={3} placeholder="Bio" value={bio} onChange={(e) => setBio(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm" />
+              <button type="submit" className="bg-violet-600 text-white px-4 py-2 rounded-xl text-sm font-semibold">{saving ? 'Saving...' : 'Save Profile'}</button>
             </form>
           </div>
         </div>
 
-        {/* Sponsorship Management Block */}
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Your Sponsorship Offerings</h2>
-          <p className="text-slate-500 mb-6">Create predefined pricing options for local brands.</p>
-          
+          <h2 className="text-2xl font-bold mb-4">Your Sponsorship Offerings</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm h-fit">
-              <h3 className="font-bold text-slate-800 mb-4">Add New Slot</h3>
-              <form onSubmit={handleAddSlot} className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium text-slate-700">Service Title</label>
-                  <input type="text" required placeholder="e.g. Dedicated Video Review" value={slotTitle} onChange={(e) => setSlotTitle(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-violet-500" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-slate-700">Price (£ GBP)</label>
-                  <input type="number" required placeholder="150" value={slotPrice} onChange={(e) => setSlotPrice(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-violet-500" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-slate-700">Deliverable Description</label>
-                  <textarea rows={2} required placeholder="What exactly does the business get?" value={slotDescription} onChange={(e) => setSlotDescription(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-violet-500" />
-                </div>
-                <button type="submit" className="w-full bg-slate-900 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-slate-800">
-                  Publish Offering
-                </button>
-              </form>
-            </div>
+            <form onSubmit={handleAddSlot} className="bg-white p-6 rounded-2xl border shadow-sm space-y-3">
+              <input required placeholder="Service Title" value={slotTitle} onChange={(e) => setSlotTitle(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm" />
+              <input required type="number" placeholder="Price (£)" value={slotPrice} onChange={(e) => setSlotPrice(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm" />
+              <textarea required placeholder="Description" value={slotDescription} onChange={(e) => setSlotDescription(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm" />
+              <button className="w-full bg-slate-900 text-white py-2 rounded-xl text-sm font-bold">Publish Offering</button>
+            </form>
 
             <div className="space-y-3">
-              <h3 className="font-bold text-slate-800 px-1">Active Slots ({slots.length})</h3>
-              {slots.length === 0 ? (
-                <div className="text-center py-8 border border-dashed border-slate-200 bg-white rounded-2xl text-slate-400 text-sm">
-                  No slots published yet. Build your first one!
-                </div>
-              ) : (
-                slots.map((slot) => (
-                  <div key={slot.id} className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm flex justify-between items-start">
-                    <div>
-                      <h4 className="font-bold text-sm text-slate-900">{slot.title}</h4>
-                      <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{slot.description}</p>
-                      <div className="flex gap-3 mt-2">
-                        <button onClick={() => handleEditSlot(slot)} className="text-[10px] font-bold text-blue-600 uppercase">Edit</button>
-                        <button onClick={() => handleDeleteSlot(slot.id)} className="text-[10px] font-bold text-red-600 uppercase">Delete</button>
-                      </div>
-                    </div>
-                    <span className="font-extrabold text-sm text-slate-900 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
-                      £{slot.price}
-                    </span>
+              {slots.map((slot) => (
+                <div key={slot.id} className="bg-white border p-4 rounded-xl flex justify-between items-center">
+                  <div>
+                    <h4 className="font-bold text-sm">{slot.title}</h4>
+                    <p className="text-xs text-slate-500">£{slot.price}</p>
                   </div>
-                ))
-              )}
+                  <div className="flex gap-3 text-xs font-semibold">
+                    <Link href={`/edit/${slot.id}`} className="text-blue-600">Edit</Link>
+                    <button onClick={() => handleDeleteSlot(slot.id)} className="text-red-600">Delete</button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* INBOX SECTION BLOCK */}
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Inbound Booking Requests</h2>
-          <p className="text-slate-500 mb-6">Proposals submitted by local brands directly through your landing page.</p>
-          
-          <div className="space-y-4">
-            {bookings.length === 0 ? (
-              <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200 text-slate-400 text-sm">
-                Your inbox is empty. When brands submit proposals, they will load here instantly!
+          <h2 className="text-2xl font-bold mb-4">Inbound Booking Requests</h2>
+          {bookings.map((b) => (
+            <div key={b.id} className="bg-white border rounded-2xl p-6 mb-4 shadow-sm">
+              <div className="flex justify-between mb-2">
+                <h3 className="font-bold">{b.business_name}</h3>
+                <a href={`mailto:${b.business_email}`} className="text-xs bg-violet-100 text-violet-700 px-3 py-1 rounded-lg">Reply</a>
               </div>
-            ) : (
-              bookings.map((booking) => (
-                <div key={booking.id} className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <span className="text-xs font-bold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md">
-                        Requested: {(booking.slots as any)?.title || 'Custom Offering'}
-                      </span>
-                      <h3 className="text-lg font-bold text-slate-900 mt-2">{booking.business_name}</h3>
-                    </div>
-                    <a 
-                      href={`mailto:${booking.business_email}?subject=Regarding your Hyperlocal Bio proposal`}
-                      className="bg-violet-600 hover:bg-violet-700 text-white font-semibold text-xs px-4 py-2 rounded-xl shadow-sm transition"
-                    >
-                      Reply via Email ✉️
-                    </a>
-                  </div>
-                  <p className="text-sm text-slate-600 bg-slate-50 rounded-xl p-4 border border-slate-100 italic leading-relaxed">
-                    "{booking.proposal_details}"
-                  </p>
-                  <p className="text-[11px] text-slate-400 font-medium px-1">
-                    Contact: <span className="underline font-semibold">{booking.business_email}</span> • Received: {new Date(booking.created_at).toLocaleDateString('en-GB')}
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
+              <p className="text-sm text-slate-600 italic">"{b.proposal_details}"</p>
+            </div>
+          ))}
         </div>
-
       </div>
     </div>
   );
