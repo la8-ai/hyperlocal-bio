@@ -8,3 +8,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+export type AccountType = 'customer' | 'creator';
+export type BookingStatus = 'pending' | 'accepted' | 'declined' | 'completed';
+export type PaymentStatus = 'unpaid' | 'pending' | 'paid';

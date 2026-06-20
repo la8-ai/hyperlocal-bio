@@ -1,46 +1,43 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
-// Initialize Stripe. 
-// Ensure STRIPE_SECRET_KEY is in your Vercel Environment Variables.
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-05-27.dahlia',
-});
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Failed to create onboarding link.';
+}
 
 export async function POST(req: Request) {
   try {
-    // 1. Validate that the base URL is set
-    if (!process.env.NEXT_PUBLIC_BASE_URL) {
-      return NextResponse.json(
-        { error: 'NEXT_PUBLIC_BASE_URL is not configured' },
-        { status: 500 }
-      );
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return NextResponse.json({ error: 'STRIPE_SECRET_KEY is not configured.' }, { status: 500 });
     }
 
-    // 2. Create a connected account
-    const account = await stripe.accounts.create({ 
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2026-05-27.dahlia',
+    });
+
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || req.headers.get('origin');
+    if (!baseUrl) {
+      return NextResponse.json({ error: 'NEXT_PUBLIC_BASE_URL is not configured.' }, { status: 500 });
+    }
+
+    const { existingAccountId } = await req.json();
+    const accountId = existingAccountId || (await stripe.accounts.create({
       type: 'express',
       capabilities: {
         card_payments: { requested: true },
         transfers: { requested: true },
       },
-    });
+    })).id;
 
-    // 3. Create the onboarding link
     const accountLink = await stripe.accountLinks.create({
-      account: account.id,
-      refresh_url: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard`,
-      return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard`,
+      account: accountId,
+      refresh_url: `${baseUrl}/dashboard`,
+      return_url: `${baseUrl}/dashboard`,
       type: 'account_onboarding',
     });
 
-    return NextResponse.json({ url: accountLink.url });
-    
-  } catch (error: any) {
-    console.error('Stripe Onboarding Error:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to create onboarding link' },
-      { status: 500 }
-    );
+    return NextResponse.json({ url: accountLink.url, accountId });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }

@@ -1,220 +1,151 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
-import { supabase } from '../utils/supabase';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import BookingModal from '../components/BookingModal';
+import { supabase } from '../utils/supabase';
 
-export const dynamic = 'force-dynamic';
+type Creator = {
+  id: string;
+  username: string;
+  display_name: string;
+  bio: string;
+  city: string;
+  social_url: string;
+  verification_status: string;
+};
 
-function ProfileContent() {
-  const routeParams = useParams();
+type Slot = {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string;
+  price: number;
+  platforms: string[] | null;
+  profiles: {
+    display_name: string | null;
+    username: string | null;
+  };
+};
+
+export default function PublicProfilePage() {
+  const params = useParams<{ username: string }>();
   const [loading, setLoading] = useState(true);
-  const [creator, setCreator] = useState<any>(null);
-  const [slots, setSlots] = useState<any[]>([]);
-  
-  const [selectedSlot, setSelectedSlot] = useState<any>(null);
-  const [businessName, setBusinessName] = useState('');
-  const [businessEmail, setBusinessEmail] = useState('');
-  const [proposalDetails, setProposalDetails] = useState('');
-  const [submittingLead, setSubmittingLead] = useState(false);
-  const [bookingSuccess, setBookingSuccess] = useState(false);
+  const [creator, setCreator] = useState<Creator | null>(null);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
 
   useEffect(() => {
-    const fetchProfileAndSlots = async () => {
-      const usernameParam = routeParams?.username;
-
-      if (!usernameParam) {
+    const loadProfile = async () => {
+      const username = params?.username?.toLowerCase();
+      if (!username) {
         setLoading(false);
         return;
       }
 
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('*')
-        .eq('username', (usernameParam as string).toLowerCase())
-        .single();
+        .select('id, username, display_name, bio, city, social_url, verification_status, account_type')
+        .eq('username', username)
+        .eq('account_type', 'creator')
+        .maybeSingle();
 
-      if (profileData) {
-        setCreator({
-          id: profileData.id,
-          displayName: profileData.display_name,
-          username: profileData.username,
-          bio: profileData.bio,
-          city: profileData.city,
-        });
-
-        const { data: slotsData } = await supabase
-          .from('slots')
-          .select('*')
-          .eq('user_id', profileData.id)
-          .order('created_at', { ascending: true });
-
-        if (slotsData) {
-          setSlots(slotsData);
-        }
+      if (!profileData) {
+        setLoading(false);
+        return;
       }
+
+      setCreator(profileData as Creator);
+
+      const { data: slotData } = await supabase
+        .from('slots')
+        .select('id, user_id, title, description, price, platforms, profiles ( display_name, username )')
+        .eq('user_id', profileData.id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      setSlots((slotData || []) as unknown as Slot[]);
       setLoading(false);
     };
 
-    fetchProfileAndSlots();
-  }, [routeParams]);
-
-  const handleSubmitBooking = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!creator || !selectedSlot) return;
-    setSubmittingLead(true);
-
-    const { error } = await supabase.from('bookings').insert({
-      creator_id: creator.id,
-      slot_id: selectedSlot.id,
-      business_name: businessName,
-      business_email: businessEmail,
-      proposal_details: proposalDetails,
-    });
-
-    setSubmittingLead(false);
-    if (error) {
-      alert(error.message);
-    } else {
-      setBookingSuccess(true);
-      setBusinessName('');
-      setBusinessEmail('');
-      setProposalDetails('');
-    }
-  };
+    loadProfile();
+  }, [params?.username]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-900">
-        <p className="font-medium animate-pulse">Loading profile...</p>
-      </div>
-    );
+    return <div className="min-h-[calc(100vh-73px)] bg-slate-50 py-20 text-center text-sm font-bold text-slate-500">Loading creator...</div>;
   }
 
   if (!creator) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-900">
-        <p className="font-medium">No creator profile found at this handle.</p>
+      <div className="min-h-[calc(100vh-73px)] bg-slate-50 px-4 py-20">
+        <div className="mx-auto max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <h1 className="text-2xl font-black text-slate-950">Creator not found</h1>
+          <p className="mt-2 text-sm text-slate-500">This public creator profile is not live yet.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans relative">
-      <div className="h-32 bg-gradient-to-r from-violet-600 to-indigo-600"></div>
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 -mt-16 pb-24">
-        
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 sm:p-8 mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">{creator.displayName}</h1>
-              <p className="text-violet-600 font-medium mt-0.5">@{creator.username}</p>
-              <div className="inline-flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-full text-xs font-semibold text-slate-600 mt-3">
-                📍 {creator.city}
-              </div>
+    <div className="min-h-[calc(100vh-73px)] bg-slate-50">
+      <div className="bg-slate-950">
+        <section className="mx-auto max-w-6xl px-4 py-12 text-white">
+          <div className="max-w-3xl">
+            <p className="text-xs font-black uppercase tracking-wide text-emerald-300">{creator.city || 'Online creator'}</p>
+            <h1 className="mt-3 text-5xl font-black tracking-tight">{creator.display_name}</h1>
+            <p className="mt-2 text-sm font-bold text-slate-300">@{creator.username}</p>
+            <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">{creator.bio || 'Creator profile coming soon.'}</p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <span className="rounded-full bg-white/10 px-3 py-2 text-xs font-black uppercase tracking-wide text-white">
+                {creator.verification_status === 'verified' ? 'Verified creator' : 'Social submitted'}
+              </span>
+              {creator.social_url && (
+                <a href={creator.social_url} target="_blank" rel="noreferrer" className="rounded-full bg-emerald-400 px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-950 hover:bg-emerald-300">
+                  View social
+                </a>
+              )}
             </div>
           </div>
-          <hr className="my-6 border-slate-100" />
-          <p className="text-slate-600 leading-relaxed">{creator.bio}</p>
+        </section>
+      </div>
+
+      <section className="mx-auto max-w-6xl px-4 py-10">
+        <div className="mb-6 flex items-end justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wide text-emerald-700">Available offers</p>
+            <h2 className="mt-2 text-3xl font-black text-slate-950">Book {creator.display_name}</h2>
+          </div>
         </div>
 
-        <h2 className="text-xl font-bold text-slate-800 mb-4 px-1">Available Sponsorships</h2>
-        
         {slots.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-2xl border border-slate-100 text-slate-400 text-sm shadow-sm">
-            This creator hasn't listed any sponsorship offerings yet. Check back soon!
+          <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+            <h3 className="font-black text-slate-950">No live offers yet</h3>
+            <p className="mt-2 text-sm text-slate-500">Check back soon.</p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {slots.map((slot: any) => (
-              <div key={slot.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:border-slate-200 hover:shadow-md transition-all p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
-                <div className="space-y-1.5 flex-1">
-                  <h3 className="text-lg font-bold text-slate-900">{slot.title}</h3>
-                  <p className="text-sm text-slate-500 leading-relaxed max-w-xl">{slot.description}</p>
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {slots.map((slot) => (
+              <article key={slot.id} className="flex min-h-[250px] flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <h3 className="text-2xl font-black leading-tight text-slate-950">{slot.title}</h3>
+                  <span className="rounded-xl bg-emerald-100 px-3 py-2 text-sm font-black text-emerald-800">GBP {slot.price}</span>
                 </div>
-                <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto pt-4 sm:pt-0 border-t sm:border-t-0 border-slate-100 gap-4">
-                  <span className="text-2xl font-black text-slate-900">£{slot.price}</span>
-                  <button 
-                    onClick={() => { setSelectedSlot(slot); setBookingSuccess(false); }}
-                    className="bg-violet-600 hover:bg-violet-700 text-white font-semibold text-sm px-5 py-2.5 rounded-xl shadow-sm transition"
-                  >
-                    Book Slot
-                  </button>
+                <p className="mt-3 text-sm leading-6 text-slate-600">{slot.description}</p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {slot.platforms?.map((platform) => (
+                    <span key={platform} className="rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-slate-600">{platform}</span>
+                  ))}
                 </div>
-              </div>
+                <button onClick={() => setSelectedSlot(slot)} className="mt-auto rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white hover:bg-slate-800">
+                  Request offer
+                </button>
+              </article>
             ))}
           </div>
         )}
-      </div>
+      </section>
 
-      {selectedSlot && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-slate-100 relative">
-            <button 
-              onClick={() => setSelectedSlot(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl font-medium"
-            >
-              ✕
-            </button>
-
-            {!bookingSuccess ? (
-              <>
-                <div className="mb-5">
-                  <span className="text-xs font-bold uppercase tracking-wider text-violet-600 bg-violet-50 px-2.5 py-1 rounded-md">
-                    Booking Request
-                  </span>
-                  <h3 className="text-xl font-black text-slate-900 mt-2">{selectedSlot.title}</h3>
-                  <p className="text-sm text-slate-500 font-semibold mt-0.5">Price: £{selectedSlot.price}</p>
-                </div>
-
-                <form onSubmit={handleSubmitBooking} className="space-y-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wide">Business Name</label>
-                    <input type="text" required placeholder="e.g. Local Pizzeria" value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wide">Contact Email</label>
-                    <input type="email" required placeholder="marketing@business.co.uk" value={businessEmail} onChange={(e) => setBusinessEmail(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wide">Campaign Goals & Details</label>
-                    <textarea rows={3} required placeholder="Tell the creator what you want to promote..." value={proposalDetails} onChange={(e) => setProposalDetails(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500" />
-                  </div>
-                  <button type="submit" disabled={submittingLead} className="w-full bg-violet-600 text-white font-bold text-sm py-3 rounded-xl shadow-sm hover:bg-violet-700 transition disabled:opacity-50">
-                    {submittingLead ? 'Sending Request...' : 'Submit Proposal'}
-                  </button>
-                </form>
-              </>
-            ) : (
-              <div className="text-center py-6 space-y-3">
-                <div className="text-4xl">🎉</div>
-                <h3 className="text-xl font-extrabold text-slate-900">Proposal Submitted!</h3>
-                <p className="text-sm text-slate-500 leading-relaxed max-w-xs mx-auto">
-                  Your details have been passed straight onto <strong>@{creator?.username}</strong>.
-                </p>
-                <button 
-                  onClick={() => setSelectedSlot(null)}
-                  className="mt-4 bg-slate-900 text-white font-semibold text-sm px-6 py-2 rounded-xl hover:bg-slate-800"
-                >
-                  Close Window
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {selectedSlot && <BookingModal slot={selectedSlot} onClose={() => setSelectedSlot(null)} />}
     </div>
-  );
-}
-
-export default function PublicProfilePage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-900">
-        <p className="font-medium animate-pulse">Loading layout components...</p>
-      </div>
-    }>
-      <ProfileContent />
-    </Suspense>
   );
 }
