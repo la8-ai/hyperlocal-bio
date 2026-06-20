@@ -124,6 +124,31 @@ export default function DashboardPage() {
     }
   };
 
+  // NEW: Delete Function
+  const handleDeleteSlot = async (slotId: string) => {
+    if (!confirm("Are you sure you want to delete this listing?")) return;
+    const { error } = await supabase.from('slots').delete().eq('id', slotId);
+    if (!error) {
+      setSlots(slots.filter(s => s.id !== slotId));
+    }
+  };
+
+  // NEW: Edit Function
+  const handleEditSlot = async (slot: any) => {
+    const newTitle = prompt("Edit Title:", slot.title);
+    const newPrice = prompt("Edit Price:", slot.price);
+    if (newTitle && newPrice) {
+      const { error } = await supabase.from('slots').update({ 
+        title: newTitle, 
+        price: parseFloat(newPrice) 
+      }).eq('id', slot.id);
+      
+      if (!error) {
+        setSlots(slots.map(s => s.id === slot.id ? { ...s, title: newTitle, price: newPrice } : s));
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-900">
@@ -202,10 +227,14 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 slots.map((slot) => (
-                  <div key={slot.id} className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm flex justify-between items-center">
+                  <div key={slot.id} className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm flex justify-between items-start">
                     <div>
                       <h4 className="font-bold text-sm text-slate-900">{slot.title}</h4>
                       <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{slot.description}</p>
+                      <div className="flex gap-3 mt-2">
+                        <button onClick={() => handleEditSlot(slot)} className="text-[10px] font-bold text-blue-600 uppercase">Edit</button>
+                        <button onClick={() => handleDeleteSlot(slot.id)} className="text-[10px] font-bold text-red-600 uppercase">Delete</button>
+                      </div>
                     </div>
                     <span className="font-extrabold text-sm text-slate-900 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
                       £{slot.price}
